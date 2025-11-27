@@ -1017,6 +1017,10 @@ bool out_of_memory(struct oom_control *oc)
 	unsigned long freed = 0;
 	enum oom_constraint constraint = CONSTRAINT_NONE;
 
+	/* Return true since Simple LMK automatically kills in the background */
+	if (IS_ENABLED(CONFIG_ANDROID_SIMPLE_LMK))
+		return true;
+
 	if (oom_killer_disabled)
 		return false;
 
@@ -1100,9 +1104,6 @@ void pagefault_out_of_memory(void)
 {
 	static DEFINE_RATELIMIT_STATE(pfoom_rs, DEFAULT_RATELIMIT_INTERVAL,
 				      DEFAULT_RATELIMIT_BURST);
-
-	if (IS_ENABLED(CONFIG_HAVE_LOW_MEMORY_KILLER))
-		return;
 
 	if (mem_cgroup_oom_synchronize(true))
 		return;
