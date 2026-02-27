@@ -1,4 +1,5 @@
 /* Copyright (c) 2018-2020 The Linux Foundation. All rights reserved.
+ * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -387,6 +388,11 @@ int qg_get_battery_temp(struct qpnp_qg *chip, int *temp)
 		return 0;
 	}
 
+	if (chip->batt_fake_temp != -1) {
+		*temp = chip->batt_fake_temp;
+		return 0;
+	}
+
 	rc = iio_read_channel_processed(chip->batt_therm_chan, temp);
 	if (rc < 0) {
 		pr_err("Failed reading BAT_TEMP over ADC rc=%d\n", rc);
@@ -399,6 +405,7 @@ int qg_get_battery_temp(struct qpnp_qg *chip, int *temp)
 		pr_err("Failed reading BAT_TEMP over ADC rc=%d\n", rc);
 		return rc;
 	}
+
 	if (abs(last_temp - *temp) > 50) {
 		rc = iio_read_channel_processed(chip->batt_therm_chan, temp);
 		if (rc < 0) {

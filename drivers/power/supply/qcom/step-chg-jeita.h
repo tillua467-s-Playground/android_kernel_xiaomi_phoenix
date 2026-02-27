@@ -1,4 +1,5 @@
 /* Copyright (c) 2017-2019 The Linux Foundation. All rights reserved.
+ * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -13,24 +14,34 @@
 #ifndef __STEP_CHG_H__
 #define __STEP_CHG_H__
 
-#ifdef CONFIG_MACH_XIAOMI_SDMMAGPIE
-#define MAX_STEP_CHG_ENTRIES	5
-#else
-#define MAX_STEP_CHG_ENTRIES	8
-#endif
-#define BATT_CP_COOL_THRESHOLD		100
+#define BATT_CP_COOL_THRESHOLD		150
 #define BATT_CP_WARM_THRESHOLD		450
-
-#define BATT_COOL_THRESHOLD		150
-#define BATT_WARM_THRESHOLD		450
-#define FFC_CHG_TERM_TEMP_THRESHOLD	440
-#define FFC_LOW_TEMP_CHG_TERM_CURRENT	-980
-#define FFC_HIGH_TEMP_CHG_TERM_CURRENT	-1110
 #define SOC_CHG_VOTER		"SOC_CHG_VOTER"
 #define SOC_FCC_LIMIT		5300000
 
+#ifdef CONFIG_K6_CHARGE
+#define MAX_STEP_CHG_ENTRIES	5
+#define BATT_COOL_THRESHOLD		150
+#define BATT_WARM_THRESHOLD		480
+#define FFC_CHG_TERM_TEMP_THRESHOLD	350
+#define FFC_LOW_TEMP_CHG_TERM_CURRENT	-980
+#define FFC_HIGH_TEMP_CHG_TERM_CURRENT	-1110
+#else
+#define MAX_STEP_CHG_ENTRIES	5
+#define BATT_COOL_THRESHOLD		150
+#define BATT_WARM_THRESHOLD		450
+#define FFC_CHG_TERM_TEMP_THRESHOLD	350
+#define FFC_LOW_TEMP_CHG_TERM_CURRENT	-980
+#define FFC_HIGH_TEMP_CHG_TERM_CURRENT	-1110
+#endif
 
-#define HVDCP3_CLASS_B_27W		2
+enum hvdcp3_class_type {
+	HVDCP3_CLASS_NONE = 0,
+	HVDCP3_CLASS_A_18W,
+	HVDCP3_CLASS_B_27W,
+	HVDCP3P5_CLASS_A_18W,
+	HVDCP3P5_CLASS_B_27W,
+};
 
 struct step_chg_jeita_param {
 	u32			psy_prop;

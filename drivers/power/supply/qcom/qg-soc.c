@@ -1,4 +1,5 @@
 /* Copyright (c) 2018-2020 The Linux Foundation. All rights reserved.
+ * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -29,14 +30,10 @@
 
 #define DEFAULT_UPDATE_TIME_MS			64000
 #define SOC_SCALE_HYST_MS			2000
-#define VBAT_LOW_HYST_UV			50000
+#define VBAT_LOW_HYST_UV			5000
 #define FULL_SOC				100
 
-#ifdef CONFIG_MACH_XIAOMI_SDMMAGPIE
 static int qg_delta_soc_interval_ms = 40000;
-#else
-static int qg_delta_soc_interval_ms = 20000;
-#endif
 module_param_named(
 	soc_interval_ms, qg_delta_soc_interval_ms, int, 0600
 );
@@ -46,11 +43,7 @@ module_param_named(
 	fvss_soc_interval_ms, qg_fvss_delta_soc_interval_ms, int, 0600
 );
 
-#ifdef CONFIG_MACH_XIAOMI_SDMMAGPIE
 static int qg_delta_soc_cold_interval_ms = 25000;
-#else
-static int qg_delta_soc_cold_interval_ms = 4000;
-#endif
 module_param_named(
 	soc_cold_interval_ms, qg_delta_soc_cold_interval_ms, int, 0600
 );
@@ -163,6 +156,16 @@ static int qg_process_tcss_soc(struct qpnp_qg *chip, int sys_soc)
 		qg_iterm_ua = -1 * prop.intval;
 	}
 
+	rc = power_supply_get_property(chip->batt_psy, POWER_SUPPLY_PROP_STATUS, &prop);
+	pr_err("charge_status = %d\n", prop.intval);
+	if (rc < 0) {
+		pr_err("failed to get charge_status, rc = %d\n", rc);
+		goto exit_soc_scale;
+	} else if (prop.intval != POWER_SUPPLY_STATUS_CHARGING) {
+		pr_err("charge_status is not charging, rc = %d\n", rc);
+		goto exit_soc_scale;
+	}
+
 	rc = power_supply_get_property(chip->batt_psy, POWER_SUPPLY_PROP_HEALTH, &prop);
 	if (rc < 0){
 		pr_err("failed to get bat_health, rc = %d\n", rc);
@@ -222,7 +225,6 @@ static int qg_process_tcss_soc(struct qpnp_qg *chip, int sys_soc)
 
 	wt_ibat = qg_linear_interpolate(1, chip->soc_tcss_entry,
 					10000, 10000, soc_ibat);
-
 	wt_ibat = CAP(QG_MIN_SOC, QG_MAX_SOC, wt_ibat);
 	wt_sys = 10000 - wt_ibat;
 
@@ -244,9 +246,7 @@ exit_soc_scale:
 skip_entry_count:
 	chip->tcss_active = false;
 	qg_dbg(chip, QG_DEBUG_SOC, "TCSS: Quit - enabled=%d sys_soc=%d tcss_entry_count=%d fifo_i_ua=%d bat_health=%d\n",
-			chip->dt.tcss_enable, sys_soc, chip->tcss_entry_count,
-			chip->last_fifo_i_ua, bat_health);
-
+			chip->dt.tcss_enable, sys_soc, chip->tcss_entry_count, chip->last_fifo_i_ua, bat_health);
 	return sys_soc;
 }
 
@@ -308,14 +308,12 @@ int qg_adjust_sys_soc(struct qpnp_qg *chip)
 
 	if (chip->sys_soc == QG_MAX_SOC) {
 		soc = FULL_SOC;
-#ifndef CONFIG_MACH_XIAOMI_SDMMAGPIE
-	} else if (chip->sys_soc >= (QG_MAX_SOC - 100)) {
+	} else if (chip->sys_soc >= (QG_MAX_SOC - 100) && !chip->dt.disable_hold_full) {
 		/* Hold SOC to 100% if we are dropping from 100 to 99 */
 		if (chip->last_adj_ssoc == FULL_SOC)
 			soc = FULL_SOC;
 		else /* Hold SOC at 99% until we hit 100% */
 			soc = FULL_SOC - 1;
-#endif
 	} else {
 		soc = DIV_ROUND_CLOSEST(chip->sys_soc, 100);
 	}
