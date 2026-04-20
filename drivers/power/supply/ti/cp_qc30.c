@@ -59,12 +59,6 @@
 #define pr_debug pr_err
 #endif
 
-#ifdef CONFIG_K6_CHARGE
-#ifdef pr_info
-#undef pr_info
-#define pr_info pr_err
-#endif
-#endif
 
 #define BATT_MAX_CHG_VOLT		4400
 #define BATT_FAST_CHG_CURR		5400
@@ -230,7 +224,6 @@ static int qc3_get_bms_fastcharge_mode(void)
 }
 
 
-/* get thermal level from battery power supply property */
 static int qc3_get_batt_current_thermal_level(int *level)
 {
 	int ret, rc;
@@ -255,7 +248,6 @@ static int qc3_get_batt_current_thermal_level(int *level)
 	return rc;
 }
 
-/* determine whether to disable cp according to jeita status */
 static bool qc3_disable_cp_by_jeita_status(void)
 {
 	int batt_temp = 0, bq_input_suspend = 0;
@@ -869,12 +861,7 @@ static int cp_flash2_charge(unsigned int port)
 	if (pm_state.bq2597x.vbat_volt > sys_config.bat_volt_lp_lmt - 100 &&
 			pm_state.bq2597x.ibat_curr < sys_config.fc2_taper_current) {
 		if (fc2_taper_timer++ > TAPER_TIMEOUT) {
-#ifdef CONFIG_K6_CHARGE
 			fc2_taper_timer = 0;
-			pm_state.sw_near_cv = true;
-#else
-			fc2_taper_timer = 0;
-#endif
 			return TAPER_DONE;
 		}
 	} else {
@@ -1098,21 +1085,6 @@ void cp_statemachine(unsigned int port)
 
 	case CP_STATE_FLASH2_ENTRY_1:
 		cp_update_fc_status();
-#ifdef CONFIG_K6_CHARGE
-		if (pm_state.bq2597x.bus_error_status == VBUS_ERROR_LOW ||
-				pm_state.bq2597x.vbus_volt < pm_state.bq2597x.vbat_volt * 2 + 150) {
-			tune_vbus_retry = cp_get_qc_pulse_cnt();
-			tune_vbus_retry++;
-			cp_tune_vbus_volt(VOLT_UP);
-			pr_info("vvbus:%d, retry_times:%d, tuning...\n",
-					pm_state.bq2597x.vbus_volt, tune_vbus_retry);
-		} else {
-			pr_err("vvbus:%d, tuned above expected voltage, retry_times:%d\n",
-					pm_state.bq2597x.vbus_volt, tune_vbus_retry);
-			cp_move_state(CP_STATE_FLASH2_ENTRY_3);
-			break;
-		}
-#else
 		if (pm_state.bq2597x.vbus_volt < (pm_state.bq2597x.vbat_volt * 2 + BUS_VOLT_INIT_UP - 50)) {
 			tune_vbus_retry = cp_get_qc_pulse_cnt();
 			tune_vbus_retry++;
@@ -1126,7 +1098,6 @@ void cp_statemachine(unsigned int port)
 			break;
 		}
 
-#endif
 
 		if (pm_state.usb_type == POWER_SUPPLY_TYPE_USB_HVDCP_3 && tune_vbus_retry == FAKE_HVDCP3_DP_COUNT && pm_state.bq2597x.vbus_volt <= FAKE_HVDCP3_VBUS) {
 			cp_move_state(CP_STATE_SW_ENTRY);
@@ -1145,21 +1116,9 @@ void cp_statemachine(unsigned int port)
 		break;
 
 	case CP_STATE_FLASH2_ENTRY_3:
-#ifdef CONFIG_K6_CHARGE
-		if (pm_state.bq2597x.bus_error_status == VBUS_ERROR_HIGH) {
-			pr_err("vvbus=%d, too high to open cp switcher, decrease it.\n",
-					pm_state.bq2597x.vbus_volt);
-			cp_tune_vbus_volt(VOLT_DOWN);
-		} else if (pm_state.bq2597x.bus_error_status == VBUS_ERROR_LOW) {
-			pr_err("vvbus=%d, too low to open cp switcher, increase it.\n",
-					pm_state.bq2597x.vbus_volt);
-			cp_tune_vbus_volt(VOLT_UP);
-#else
 		if (pm_state.bq2597x.vbus_volt >
 				(pm_state.bq2597x.vbat_volt * 2 + BUS_VOLT_INIT_UP + 200)) {
 			pr_err("vbat volt is too high, wait it down\n");
-			/* voltage is too high, wait for voltage down, keep charge disabled to discharge */
-#endif
 		} else {
 			pr_err("vbat volt is ok, enable flash charging\n");
 			if (!pm_state.bq2597x.charge_enabled) {
@@ -1180,13 +1139,6 @@ void cp_statemachine(unsigned int port)
 				}
 			}
 
-#ifdef CONFIG_K6_CHARGE
-			if (pm_state.bq2597x.charge_enabled) {
-				cp_move_state(CP_STATE_FLASH2_TUNE);
-				cp_enable_sw(false);
-				cp_update_sw_status();
-			}
-#endif
 
 			ibus_lmt_change_timer = 0;
 			fc2_taper_timer = 0;
@@ -1209,7 +1161,7 @@ void cp_statemachine(unsigned int port)
 					ret);
 			recovery = true;
 			cp_move_state(CP_STATE_SW_ENTRY);
-		} else {// normal tune adapter output
+		} else {
 			cp_move_state(CP_STATE_FLASH2_DELAY);
 		}
 		break;
@@ -1256,11 +1208,7 @@ static void cp_workfunc(struct work_struct *work)
 	}
 
 	if (pm_state.usb_type == POWER_SUPPLY_TYPE_USB_HVDCP_3) {
-#ifdef CONFIG_K6_CHARGE
-		schedule_delayed_work(&pm_state.qc3_pm_work, msecs_to_jiffies(300));
-#else
 		schedule_delayed_work(&pm_state.qc3_pm_work, HZ);
-#endif
 	} else if (pm_state.usb_type == POWER_SUPPLY_TYPE_USB_HVDCP_3P5) {
 		schedule_delayed_work(&pm_state.qc3_pm_work, msecs_to_jiffies(100));
 	}
@@ -1447,3 +1395,4 @@ module_exit(cp_qc30_exit);
 MODULE_AUTHOR("Fei Jiang<jiangfei1@xiaomi.com>");
 MODULE_DESCRIPTION("Xiaomi cp qc30");
 MODULE_LICENSE("GPL");
+

@@ -101,7 +101,7 @@ struct step_chg_info {
 
 static struct step_chg_info *the_chip;
 
-#define STEP_CHG_HYSTERISIS_DELAY_US		500000 /* 0.5 secs */
+#define STEP_CHG_HYSTERISIS_DELAY_US		5000000 /* 5 secs */
 
 #define BATT_HOT_DECIDEGREE_MAX			600
 #define GET_CONFIG_DELAY_MS		2000
@@ -824,7 +824,6 @@ static int handle_jeita(struct step_chg_info *chip)
 	}
 
 	temp = pval.intval;
-	/* should disable/enable cp(smb1390) when soft jeita trigger and clear */
 	if (chip->six_pin_battery && !chip->use_bq_pump) {
 		if (!chip->cp_disable_votable)
 			chip->cp_disable_votable = find_votable("CP_DISABLE");
@@ -850,7 +849,6 @@ static int handle_jeita(struct step_chg_info *chip)
 	if (!chip->fcc_votable)
 		chip->fcc_votable = find_votable("FCC");
 	if (!chip->fcc_votable)
-		/* changing FCC is a must */
 		return -EINVAL;
 
 	if(rc == -ENODATA)
@@ -920,7 +918,6 @@ static int handle_jeita(struct step_chg_info *chip)
 	pr_err("%s = %d FCC = %duA FV = %duV\n",
 		chip->jeita_fcc_config->param.prop_name, pval.intval, fcc_ua, fv_uv);
 
-	/* set and clear fast charge mode when soft jeita trigger and clear */
 	if (chip->six_pin_battery) {
 		rc = power_supply_get_property(chip->usb_psy,
 				POWER_SUPPLY_PROP_PD_AUTHENTICATION, &pval);
@@ -966,10 +963,6 @@ static int handle_jeita(struct step_chg_info *chip)
 		}
 	}
 
-	/*
-	 * If JEITA float voltage is same as max-vfloat of battery then
-	 * skip any further VBAT specific checks.
-	 */
 	rc = power_supply_get_property(chip->batt_psy,
 				POWER_SUPPLY_PROP_VOLTAGE_MAX, &pval);
 	if (rc || (pval.intval == fv_uv)) {
@@ -977,11 +970,6 @@ static int handle_jeita(struct step_chg_info *chip)
 		goto set_jeita_fv;
 	}
 
-	/*
-	 * Suspend USB input path if battery voltage is above
-	 * JEITA VFLOAT threshold.
-	 */
-	/* if (chip->jeita_arb_en && fv_uv > 0) { */
 	if (fv_uv > 0) {
 		rc = power_supply_get_property(chip->batt_psy,
 				POWER_SUPPLY_PROP_VOLTAGE_NOW, &pval);
@@ -1056,10 +1044,6 @@ static int handle_battery_insertion(struct step_chg_info *chip)
 			chip->dynamic_fv_cfg_valid = false;
 			chip->get_config_retry_count = 0;
 		} else {
-			/*
-			 * Get config for the new inserted battery, delay
-			 * to make sure BMS has read out the batt_id.
-			 */
 			schedule_delayed_work(&chip->get_config_work,
 				msecs_to_jiffies(WAIT_BATT_ID_READY_MS));
 		}
@@ -1081,7 +1065,6 @@ static void status_change_work(struct work_struct *work)
 
 	handle_battery_insertion(chip);
 
-	/* skip elapsed_us debounce for handling battery temperature */
 	rc = handle_jeita(chip);
 	if (rc < 0)
 		pr_err("Couldn't handle sw jeita rc = %d\n", rc);
