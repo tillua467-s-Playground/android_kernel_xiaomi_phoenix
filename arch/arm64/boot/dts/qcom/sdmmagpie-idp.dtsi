@@ -460,6 +460,9 @@
 	io-channels = <&pm6150l_vadc ADC_AMUX_THM2>;
 	io-channel-names = "cp_die_temp";
 	status = "ok";
+	qcom,min-ilim-ua = <750000>;
+	qcom,parallel-input-mode = <3>;
+	qcom,parallel-output-mode = <2>;
 };
 
 &pm6150l_gpios {
