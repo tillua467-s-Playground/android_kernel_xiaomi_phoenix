@@ -3342,8 +3342,16 @@ static int smb5_init_hw(struct smb5 *chip)
 		chip->dt.batt_profile_fcc_ua > 0, chip->dt.batt_profile_fcc_ua);
 	vote(chg->fv_votable, HW_LIMIT_VOTER,
 		chip->dt.batt_profile_fv_uv > 0, chip->dt.batt_profile_fv_uv);
+	/*
+	 * Only enforce the "battery not verified" FCC limit when the DS28E16
+	 * verification driver is built in.  Otherwise nothing can ever unvote
+	 * BATT_VERIFY_VOTER, leaving FCC permanently clamped to
+	 * mi,fcc-batt-unverify-ua (2 A on phoenix) and breaking fast charging.
+	 */
+#ifdef CONFIG_BATT_VERIFY_BY_DS28E16
 	vote(chg->fcc_votable, BATT_VERIFY_VOTER,
 		chip->dt.batt_unverify_fcc_ua > 0, chip->dt.batt_unverify_fcc_ua);
+#endif
 	vote(chg->fv_votable, BATT_PROFILE_VOTER,
 		chg->batt_profile_fv_uv > 0, chg->batt_profile_fv_uv);
 
