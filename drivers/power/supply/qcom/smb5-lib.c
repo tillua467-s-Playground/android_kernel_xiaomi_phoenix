@@ -7180,6 +7180,14 @@ static void smblib_raise_qc3_vbus_work(struct work_struct *work)
 		else
 			vol_qc_ab_thr = VOL_THR_FOR_QC_CLASS_AB;
 
+		/*
+		 * A 9 V-class adapter tops out below the 12.4 V class A/B
+		 * threshold, so treat the 9 V band as class B (27 W) instead of
+		 * dropping it to the 5 V class A path.
+		 */
+		if (vol_qc_ab_thr > VOL_THR_FOR_QC_CLASS_B_MIN)
+			vol_qc_ab_thr = VOL_THR_FOR_QC_CLASS_B_MIN;
+
 		if (vbus_now <= vol_qc_ab_thr
 				|| chg->batt_profile_fcc_ua <= QC_CLASS_A_CURRENT_UA) {
 			pr_info("qc_class_a charger is detected, batt_profile_fcc=%d\n", chg->batt_profile_fcc_ua);

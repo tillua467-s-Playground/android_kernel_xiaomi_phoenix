@@ -122,6 +122,14 @@ enum print_reason {
 
 /* defined for distinguish qc class_a and class_b */
 #define VOL_THR_FOR_QC_CLASS_AB		12400000
+/*
+ * 9 V-class QC3 adapters (9 V/3 A, 27 W) clamp their output at ~9.9 V and
+ * never reach VOL_THR_FOR_QC_CLASS_AB during the class detection ramp.  They
+ * were therefore detected as 18 W class A adapters, which forces VBUS back to
+ * 5 V and limits charging to ~9 W.  Anything that ramps into the 9 V band is
+ * a class B adapter; if it cannot actually deliver 3 A it just folds back.
+ */
+#define VOL_THR_FOR_QC_CLASS_B_MIN	8550000
 #define COMP_FOR_LOW_RESISTANCE_CABLE	100000
 #define QC_CLASS_A_CURRENT_UA		3600000
 #define HVDCP_CLASS_A_MAX_UA		2500000
