@@ -3075,154 +3075,93 @@ static void smblib_reg_work(struct work_struct *work)
 }
 
 #ifdef CONFIG_THERMAL
-/*
- * thermal-engine derives the battery mitigation level from the charger IC
- * temperature (PMIC die / charge pump), not from the battery itself.  During a
- * normal 27 W QC3 charge the die settles at 50-55 C, so the engine parks the
- * level at 12-14 and the charge pump is clamped to ~12 W even though the
- * battery is still cold (32-33 C).  That is why throttling never recovers.
- *
- * Cap the level using the battery temperature while the charger IC is still
- * below its own regulation threshold; the SMB5 hardware/software thermal loop
- * (THERMAL_STATUS) continues to protect the IC independently.
- */
-#define BATT_TEMP_LVL0_DECIDEGC		380
-#define BATT_TEMP_LVL3_DECIDEGC		400
-#define BATT_TEMP_LVL6_DECIDEGC		420
-#define BATT_TEMP_LVL9_DECIDEGC		440
-#define BATT_TEMP_LVL11_DECIDEGC	460
-#define CHG_IC_COOL_DECIDEGC		600
-
-static int smblib_batt_limited_level(struct smb_charger *chg)
-{
-	union power_supply_propval batt_temp = {0,};
-	int level = chg->system_temp_level;
-	int rc;
-
-	/*
-	 * Only when the charge pump is doing the conversion.  On the main
-	 * charger path the PMIC die temperature is the meaningful sensor, so
-	 * leave the thermal daemon in full control there.
-	 */
-	if (chg->cp_reason == POWER_SUPPLY_CP_NONE)
-		return level;
-
-	/* Charger IC is hot: keep whatever the thermal daemon asked for */
-	if (chg->die_temp >= CHG_IC_COOL_DECIDEGC ||
-			(chg->smb_temp > 0 &&
-			 chg->smb_temp >= CHG_IC_COOL_DECIDEGC))
-		return level;
-
-	rc = smblib_get_prop_from_bms(chg, POWER_SUPPLY_PROP_TEMP, &batt_temp);
-	if (rc < 0)
-		return level;
-
-	if (batt_temp.intval <= BATT_TEMP_LVL0_DECIDEGC)
-		level = 0;
-	else if (batt_temp.intval <= BATT_TEMP_LVL3_DECIDEGC)
-		level = 3;
-	else if (batt_temp.intval <= BATT_TEMP_LVL6_DECIDEGC)
-		level = 6;
-	else if (batt_temp.intval <= BATT_TEMP_LVL9_DECIDEGC)
-		level = 9;
-	else if (batt_temp.intval <= BATT_TEMP_LVL11_DECIDEGC)
-		level = 11;
-	else
-		level = 13;
-
-	return min(level, chg->system_temp_level);
-}
-
 static int smblib_therm_charging(struct smb_charger *chg)
 {
 	int thermal_icl_ua = 0;
 	int thermal_fcc_ua = 0;
-	int level;
 	int rc;
 
-	level = smblib_batt_limited_level(chg);
-	if (level >= MAX_TEMP_LEVEL)
-		level = MAX_TEMP_LEVEL - 1;
-	chg->batt_limited_level = level;
+	if (chg->system_temp_level >= MAX_TEMP_LEVEL)
+		return 0;
 
 	switch (chg->real_charger_type) {
 	case POWER_SUPPLY_TYPE_USB_HVDCP:
-		thermal_icl_ua = chg->thermal_mitigation_qc2[level];
+		thermal_icl_ua = chg->thermal_mitigation_qc2[chg->system_temp_level];
 		break;
 	case POWER_SUPPLY_TYPE_USB_HVDCP_3:
 		if (chg->use_bq_pump) {
 			thermal_fcc_ua =
-				chg->thermal_fcc_qc3_cp[level];
+				chg->thermal_fcc_qc3_cp[chg->system_temp_level];
 		} else {
 			if (chg->cp_reason == POWER_SUPPLY_CP_HVDCP3) {
 				if (chg->is_qc_class_a)
 					thermal_fcc_ua =
-						chg->thermal_fcc_qc3_cp[level];
+						chg->thermal_fcc_qc3_cp[chg->system_temp_level];
 				else if (chg->temp_27W_enable)
 					thermal_fcc_ua =
-						chg->thermal_fcc_qc3_classb_cp[level];
+						chg->thermal_fcc_qc3_classb_cp[chg->system_temp_level];
 				else
 					thermal_fcc_ua =
-						chg->thermal_fcc_qc3_cp[level];
+						chg->thermal_fcc_qc3_cp[chg->system_temp_level];
 
 			} else {
 				thermal_fcc_ua =
-					chg->thermal_fcc_qc3_normal[level];
+					chg->thermal_fcc_qc3_normal[chg->system_temp_level];
 			}
 		}
 		break;
 	case POWER_SUPPLY_TYPE_USB_HVDCP_3P5:
 		thermal_fcc_ua =
-				chg->thermal_fcc_qc3_cp[level];
+				chg->thermal_fcc_qc3_cp[chg->system_temp_level];
 		break;
 	case POWER_SUPPLY_TYPE_USB_PD:
 		if (chg->use_bq_pump) {
 			if (chg->pps_thermal_level < 0)
-					chg->pps_thermal_level = level;
-			pr_err("chg->pps_thermal_level=%d,level=%d\n", chg->pps_thermal_level, level);
+					chg->pps_thermal_level = chg->system_temp_level;
+			pr_err("chg->pps_thermal_level=%d,chg->system_temp_level=%d\n", chg->pps_thermal_level, chg->system_temp_level);
 			thermal_fcc_ua =
 				chg->thermal_fcc_pps_cp[chg->pps_thermal_level];
 		} else {
 			if (chg->cp_reason == POWER_SUPPLY_CP_PPS) {
 				thermal_fcc_ua =
-					chg->thermal_fcc_pps_cp[level];
+					chg->thermal_fcc_pps_cp[chg->system_temp_level];
 			} else {
 				if (chg->voltage_min_uv >= PD_MICRO_5V
 						&& chg->voltage_min_uv < PD_MICRO_5P9V)
 					thermal_icl_ua =
-							chg->thermal_mitigation_pd_base[level];
+							chg->thermal_mitigation_pd_base[chg->system_temp_level];
 				else if (chg->voltage_min_uv >= PD_MICRO_5P9V
 							&& chg->voltage_min_uv < PD_MICRO_6P5V)
 					thermal_icl_ua =
-							chg->thermal_mitigation_pd_base[level]
+							chg->thermal_mitigation_pd_base[chg->system_temp_level]
 								* PD_6P5V_PERCENT / 100;
 				else if (chg->voltage_min_uv >= PD_MICRO_6P5V
 							&& chg->voltage_min_uv < PD_MICRO_7P5V)
 					thermal_icl_ua =
-							chg->thermal_mitigation_pd_base[level]
+							chg->thermal_mitigation_pd_base[chg->system_temp_level]
 								* PD_7P5V_PERCENT / 100;
 				else if (chg->voltage_min_uv >= PD_MICRO_7P5V
 							&& chg->voltage_min_uv <= PD_MICRO_8P5V)
 					thermal_icl_ua =
-							chg->thermal_mitigation_pd_base[level]
+							chg->thermal_mitigation_pd_base[chg->system_temp_level]
 								* PD_8P5V_PERCENT / 100;
 				else if (chg->voltage_min_uv >= PD_MICRO_8P5V)
 					thermal_icl_ua =
-							chg->thermal_mitigation_pd_base[level]
+							chg->thermal_mitigation_pd_base[chg->system_temp_level]
 								* PD_9V_PERCENT / 100;
 				else
 					thermal_icl_ua =
-							chg->thermal_mitigation_pd_base[level];
+							chg->thermal_mitigation_pd_base[chg->system_temp_level];
 			}
 		}
 		break;
 	case POWER_SUPPLY_TYPE_USB_DCP:
 	default:
-		thermal_icl_ua = chg->thermal_mitigation_dcp[level];
+		thermal_icl_ua = chg->thermal_mitigation_dcp[chg->system_temp_level];
 		break;
 	}
 
-	if (level == 0) {
+	if (chg->system_temp_level == 0) {
 		/* if therm_lvl_sel is 0, clear thermal voter */
 		rc = vote(chg->usb_icl_votable, THERMAL_DAEMON_VOTER, false, 0);
 		if (rc < 0)
@@ -3233,8 +3172,8 @@ static int smblib_therm_charging(struct smb_charger *chg)
 			pr_err("Couldn't disable USB thermal ICL vote rc=%d\n",
 				rc);
 	} else {
-		pr_info("thermal_icl_ua is %d, level: %d\n",
-				thermal_icl_ua, level);
+		pr_info("thermal_icl_ua is %d, chg->system_temp_level: %d\n",
+				thermal_icl_ua, chg->system_temp_level);
 		pr_info("thermal_fcc_ua is %d\n", thermal_fcc_ua);
 
 		if (chg->real_charger_type == POWER_SUPPLY_TYPE_USB_HVDCP_3
@@ -3242,10 +3181,10 @@ static int smblib_therm_charging(struct smb_charger *chg)
 				|| ((chg->cp_reason == POWER_SUPPLY_CP_PPS || chg->use_bq_pump)
 				&& chg->real_charger_type == POWER_SUPPLY_TYPE_USB_PD)) {
 			/* if use qc3 or pps charge with cp, also limit icl when high level */
-			if (level >= ICL_LIMIT_LEVEL_THR)
+			if (chg->system_temp_level >= ICL_LIMIT_LEVEL_THR)
 				thermal_icl_ua =
-						chg->thermal_mitigation_icl[level];
-			if (level >= ICL_LIMIT_LEVEL_THR) {
+						chg->thermal_mitigation_icl[chg->system_temp_level];
+			if (chg->system_temp_level >= ICL_LIMIT_LEVEL_THR) {
 				rc = vote(chg->usb_icl_votable, THERMAL_DAEMON_VOTER,
 						true, thermal_icl_ua);
 				if (rc < 0)
@@ -9208,24 +9147,6 @@ static void smblib_thermal_regulation_work(struct work_struct *work)
 	if (rc < 0)
 		smblib_err(chg, "Couldn't run sw thermal regulation %d\n",
 					rc);
-
-	/*
-	 * The thermal daemon keys off the charger IC temperature and parks the
-	 * mitigation level at 12-14 during a 27 W charge, which clamps the
-	 * charge pump to ~12 W while the battery is still cold.  Re-evaluate
-	 * the battery-limited level here so it follows the battery instead.
-	 */
-	if (chg->cp_reason != POWER_SUPPLY_CP_NONE) {
-		int level = smblib_batt_limited_level(chg);
-
-		if (level != chg->batt_limited_level) {
-			chg->batt_limited_level = level;
-			pr_info("cp thermal level %d -> %d (die %d, smb %d)\n",
-				chg->system_temp_level, level,
-				chg->die_temp, chg->smb_temp);
-			smblib_therm_charging(chg);
-		}
-	}
 }
 
 #define MOISTURE_PROTECTION_CHECK_DELAY_MS 300000		/* 5 mins */
