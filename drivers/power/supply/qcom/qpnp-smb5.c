@@ -2355,6 +2355,8 @@ static int smb5_batt_set_prop(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT:
 		if (disable_thermal)
 			break;
+		pr_info("DBG-THERM: CHARGE_CONTROL_LIMIT=%d by %s[%d]\n",
+				val->intval, current->comm, current->pid);
 		rc = smblib_set_prop_system_temp_level(chg, val);
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY:
@@ -2475,6 +2477,8 @@ static int smb5_batt_set_prop(struct power_supply *psy,
 			rc = smblib_set_prop_battery_slowly_charging(chg, val);
 		break;
 	case POWER_SUPPLY_PROP_SYSTEM_TEMP_LEVEL:
+		pr_info("DBG-THERM: SYSTEM_TEMP_LEVEL=%d by %s[%d]\n",
+				val->intval, current->comm, current->pid);
 		rc = smblib_set_prop_system_temp_level(chg, val);
 		break;
 	default:
