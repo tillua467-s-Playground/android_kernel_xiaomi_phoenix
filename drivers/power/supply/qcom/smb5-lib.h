@@ -680,6 +680,7 @@ struct smb_charger {
 	bool			system_suspend_supported;
 	int			boost_threshold_ua;
 	int			system_temp_level;
+	int			batt_limited_level;
 	int			thermal_levels;
 	int			pps_thermal_level;
 #ifdef CONFIG_THERMAL
