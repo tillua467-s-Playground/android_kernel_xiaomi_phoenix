@@ -29,7 +29,6 @@
 #include <linux/regulator/of_regulator.h>
 #include <linux/regulator/machine.h>
 #include <linux/iio/consumer.h>
-#include <linux/kstrtox.h>
 #include <linux/pmic-voter.h>
 #include "smb5-reg.h"
 #include "smb5-lib.h"
@@ -311,7 +310,7 @@ static void chg_mode_hb_work(struct work_struct *work)
 			      msecs_to_jiffies(CHG_MODE_HB_POLL_MS));
 }
 
-static ssize_t chg_mode_hb_store(struct device *dev,
+static ssize_t chg_mode_heartbeat_store(struct device *dev,
 				 struct device_attribute *attr,
 				 const char *buf, size_t count)
 {
@@ -4508,7 +4507,7 @@ static int smb5_probe(struct platform_device *pdev)
 
 	INIT_DELAYED_WORK(&chg->chg_mode_hb_work, chg_mode_hb_work);
 	if (chg->batt_psy) {
-		rc = device_create_file(chg->batt_psy->dev,
+		rc = device_create_file(&chg->batt_psy->dev,
 					&dev_attr_chg_mode_heartbeat);
 		if (rc < 0)
 			pr_err("Couldn't create chg_mode_heartbeat rc=%d\n", rc);
@@ -4555,7 +4554,7 @@ static int smb5_remove(struct platform_device *pdev)
 
 	cancel_delayed_work_sync(&chg->chg_mode_hb_work);
 	if (chg->batt_psy)
-		device_remove_file(chg->batt_psy->dev,
+		device_remove_file(&chg->batt_psy->dev,
 				   &dev_attr_chg_mode_heartbeat);
 	disable_thermal = false;
 
