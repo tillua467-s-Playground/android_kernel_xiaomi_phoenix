@@ -29,6 +29,7 @@
 #include <linux/regulator/of_regulator.h>
 #include <linux/regulator/machine.h>
 #include <linux/iio/consumer.h>
+#include <linux/kstrtox.h>
 #include <linux/pmic-voter.h>
 #include "smb5-reg.h"
 #include "smb5-lib.h"
@@ -264,6 +265,87 @@ static int __mtbf_icl = 0;
 module_param_named(
 	mtbf_icl, __mtbf_icl, int, 0600
 );
+
+/*
+ * Userspace charging-mode watchdog.
+ *
+ * A userspace controller (XiaomiParts) may set disable_thermal=1 and override
+ * the charge-pump ILIM.  Both of those outlive the process that set them, so a
+ * crashed controller would leave the charger running unthrottled.  The
+ * controller must therefore refresh /sys/class/power_supply/battery/
+ * chg_mode_heartbeat at least every few seconds.  If it stops, we drop back to
+ * the stock configuration here.
+ */
+#define CHG_MODE_HB_TIMEOUT_MS	15000
+#define CHG_MODE_HB_POLL_MS	5000
+
+static void chg_mode_hb_work(struct work_struct *work)
+{
+	struct smb_charger *chg = container_of(work, struct smb_charger,
+					       chg_mode_hb_work.work);
+	struct votable *cp_ilim;
+
+	if (!chg->chg_mode_hb_armed)
+		return;
+
+	if (time_after(jiffies, chg->chg_mode_hb_last +
+				msecs_to_jiffies(CHG_MODE_HB_TIMEOUT_MS))) {
+		chg->chg_mode_hb_armed = false;
+		disable_thermal = false;
+
+		cp_ilim = find_votable("CP_ILIM");
+		if (cp_ilim)
+			vote_override(cp_ilim, CC_MODE_VOTER, false, 0);
+
+		/* clears the THERMAL_DAEMON votes; mi_thermald takes over */
+		smblib_set_prop_system_temp_level(chg, 0);
+
+		pr_info("chg_mode: heartbeat lost, restored stock charging\n");
+
+		if (chg->batt_psy)
+			power_supply_changed(chg->batt_psy);
+		return;
+	}
+
+	schedule_delayed_work(&chg->chg_mode_hb_work,
+			      msecs_to_jiffies(CHG_MODE_HB_POLL_MS));
+}
+
+static ssize_t chg_mode_hb_store(struct device *dev,
+				 struct device_attribute *attr,
+				 const char *buf, size_t count)
+{
+	struct power_supply *psy = dev_get_drvdata(dev);
+	struct smb_charger *chg;
+	unsigned int val;
+	int rc;
+
+	if (!psy)
+		return -ENODEV;
+
+	chg = power_supply_get_drvdata(psy);
+	if (!chg)
+		return -ENODEV;
+
+	rc = kstrtouint(buf, 0, &val);
+	if (rc)
+		return rc;
+
+	if (val) {
+		chg->chg_mode_hb_last = jiffies;
+		if (!chg->chg_mode_hb_armed) {
+			chg->chg_mode_hb_armed = true;
+			schedule_delayed_work(&chg->chg_mode_hb_work,
+				msecs_to_jiffies(CHG_MODE_HB_POLL_MS));
+		}
+	} else {
+		chg->chg_mode_hb_armed = false;
+		cancel_delayed_work_sync(&chg->chg_mode_hb_work);
+	}
+
+	return count;
+}
+static DEVICE_ATTR_WO(chg_mode_heartbeat);
 
 enum {
 	BAT_THERM = 0,
@@ -2355,8 +2437,6 @@ static int smb5_batt_set_prop(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT:
 		if (disable_thermal)
 			break;
-		pr_info("DBG-THERM: CHARGE_CONTROL_LIMIT=%d by %s[%d]\n",
-				val->intval, current->comm, current->pid);
 		rc = smblib_set_prop_system_temp_level(chg, val);
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY:
@@ -2477,8 +2557,6 @@ static int smb5_batt_set_prop(struct power_supply *psy,
 			rc = smblib_set_prop_battery_slowly_charging(chg, val);
 		break;
 	case POWER_SUPPLY_PROP_SYSTEM_TEMP_LEVEL:
-		pr_info("DBG-THERM: SYSTEM_TEMP_LEVEL=%d by %s[%d]\n",
-				val->intval, current->comm, current->pid);
 		rc = smblib_set_prop_system_temp_level(chg, val);
 		break;
 	default:
@@ -4428,6 +4506,14 @@ static int smb5_probe(struct platform_device *pdev)
 
 	smb5_create_debugfs(chip);
 
+	INIT_DELAYED_WORK(&chg->chg_mode_hb_work, chg_mode_hb_work);
+	if (chg->batt_psy) {
+		rc = device_create_file(chg->batt_psy->dev,
+					&dev_attr_chg_mode_heartbeat);
+		if (rc < 0)
+			pr_err("Couldn't create chg_mode_heartbeat rc=%d\n", rc);
+	}
+
 	rc = smb5_show_charger_status(chip);
 	if (rc < 0) {
 		pr_err("Failed in getting charger status rc=%d\n", rc);
@@ -4466,6 +4552,12 @@ static int smb5_remove(struct platform_device *pdev)
 	/* force enable APSD */
 	smblib_masked_write(chg, USBIN_OPTIONS_1_CFG_REG,
 				BC1P2_SRC_DETECT_BIT, BC1P2_SRC_DETECT_BIT);
+
+	cancel_delayed_work_sync(&chg->chg_mode_hb_work);
+	if (chg->batt_psy)
+		device_remove_file(chg->batt_psy->dev,
+				   &dev_attr_chg_mode_heartbeat);
+	disable_thermal = false;
 
 	smb5_free_interrupts(chg);
 	smblib_deinit(chg);

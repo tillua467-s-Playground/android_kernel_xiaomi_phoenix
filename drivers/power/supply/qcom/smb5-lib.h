@@ -879,6 +879,11 @@ struct smb_charger {
 	bool			early_status_report;
 	bool			hvdcp_recheck_status;
 
+	/* userspace charging-mode heartbeat watchdog */
+	struct delayed_work	chg_mode_hb_work;
+	unsigned long		chg_mode_hb_last;
+	bool			chg_mode_hb_armed;
+
 	/* QC3P5 related */
 	bool			qc3p5_supported;
 	bool			qc3p5_auth_complete;
